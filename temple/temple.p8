@@ -35,15 +35,16 @@ door = 6
 key = 7
 
  -- variables
- phase = 1
+ prev_phase_num = 0
+ phase_num = 1
  is_jumping = false
-   
+    
  -- tablas
  phases = {}
 
  player = {
-			x=8, 
-			y=104, 
+			x=0, 
+			y=0, 
 			step=2,
 			dir=dir.none, 
 			spr = 1, 
@@ -68,20 +69,40 @@ key = 7
 			key = 2
  		 }						  
 
- key_got = {
-			found = false,
-			x = 0,
-			y = 0
- 	       }
+ key_got = { 
+				found = false,
+				sprite_num = 37,
+				x = -1,
+				y = -1
+ 			}
 
  cam = {x=0, y=0}
-	
- add(phases, {x=0, y=0, width=256, height=128})   -- phase 1
- add(phases, {x=10, y=10}) -- phase 2
+
+ current_phase = {  x=0,
+					y=0, 
+					width=256, 
+					height=128, 
+					keys={				-- Keys in phase
+							{ 	x=2, 
+								y=2, 
+								doors={ -- Door open by key
+										{x=31, y=7}, 
+										{x=31, y=8}
+									}
+							}
+						},
+					player = {
+						x = 8, 
+						y = 104
+					} 
+			  }
+ 
+ add(phases, current_phase)   -- phase 1
 end 
 
 function _update()
  local prev_x_player = player.x
+ update_phase()
  update_player()
  update_camera(prev_x_player)
  is_player_dead()
@@ -91,9 +112,36 @@ function _draw()
 	cls()
 	map(0,0,0,0)
 	camera(cam.x, cam.y)
-	refresh_key()
 	spr(player.spr, player.x, player.y, 2, 2, player.flip_x, false)
 	print (player.x..' '..player.y,cam.x,cam.y,9)
+	if (key_got.found) then
+		print ('LLAVE OBTENIDA',cam.x+30,cam.y,9)
+	end
+end
+
+function update_phase()
+	if (player.is_dead) then 
+		if (key_got.found) then
+			mset(key_got.x, key_got.y, key_got.sprite_num)
+		end
+		copy_jump_start(jump)
+		is_jumping = false
+		phase_num = phase_num-1
+	end
+	
+	if (phase_num != prev_phase_num) then
+		local phase_to_copy = phases[phase_num]
+		cam.x = current_phase.x
+		cam.y = current_phase.y
+		player.x = current_phase.player.x
+		player.y = current_phase.player.y
+		player.is_dead = false
+		key_got.found = false
+		// Increasing phase
+		phase_num = phase_num + 1
+		prev_phase_num = phase_num
+		copy_new_phase_to_current_phase(current_phase, phase_to_copy)		
+	end
 end
 
 -->8
@@ -101,27 +149,32 @@ function update_player()
 	update_player_sprite()
 	update_player_checking_jump()	
 	is_player_dead()
-	player_has_got_key()
+	player_has_got_key(true)
 end
 
-function refresh_key()
-	if (key_got.found) then
-		sfx(sound.key)
-		key_got.found = false
-		local sprite = mget(key_got.x, key_got.y)
-		if (fget(sprite, key)) then
-			fset(sprite, key, false)
-			-- check it
-			-- check it
-			-- check it
-			-- check it
-			spr(32, key_got.x, key_got.y)
+function copy_new_phase_to_current_phase(current_ph, new_ph)
+	current_ph.x = new_ph.x
+	current_ph.y = new_ph.y
+	current_ph.width = new_ph.width
+	current_ph.height = new_ph.height
+	--printh('num keys '..tostr(#new_ph.keys))
+	--printh('num doors '..tostr(#new_ph.keys[1].doors))
+	for i=1,#new_ph.keys,1 do
+		local key = { 	x=new_ph.keys[i].x, 
+						y=new_ph.keys[i].y, 
+						doors={}
+					}
+		for j=1, #new_ph.keys[i].doors,1 do
+			add(key.doors, new_ph.keys[i].doors[j])
 		end
+		add(current_ph.keys, key)
 	end
+	--printh('copy done')
+	current_ph.player.x = new_ph.player.x
+	current_ph.player.y = new_ph.player.y
 end
 
 function update_camera(prev_x_player)
-	local current_phase = phases[phase]
 	local camara_can_be_moved = true
 
 	if (prev_x_player < player.x) then
@@ -142,35 +195,30 @@ end
 function is_player_dead()
 	if (is_collision_detected(dead)) then
 		player.is_dead = true
-		player.x = 8
-		player.y = 104
-		copy_jump_start(jump)
-		is_jumping = false
-		cam.x = 0
-		cam.y = 0
 		sfx(sound.dead)
 	end
 end
 
-function player_has_got_key()
-	local current_phase = phases[phase]
+function player_has_got_key(erase)
 	local found = false
-	local sprite
 	if (is_collision_detected(key)) then
-		while (found == false) do
-			for x=0, current_phase.width do
-				for y=0, current_phase.height do
-					sprite = mget(x,y)
-					if (fget(sprite, key)) then
-						key_got.found = true
-						key_got.x = x
-						key_got.y = y
-						found = true
-					end
-					y= y + 8					
+		for i=1, #current_phase.keys,1 do
+			if (found == false) then
+				--printh('player.x='..tostr(player.x))
+				--printh('player.y='..tostr(player.y))
+				--printh('current_phase.key.x='..tostr(current_phase.keys[i].x))
+				--printh('current_phase.key.y='..tostr(current_phase.keys[i].y))
+				if ((player.x\8 == current_phase.keys[i].x) and (player.y\8 == current_phase.keys[i].y)) then 
+					found = true	
+					key_got.found = true -- global
+					key_got.x = current_phase.keys[i].x
+					key_got.y = current_phase.keys[i].y
 				end
-				x = x + 8
 			end
+		end
+		if (found and erase) then
+			sfx(sound.key)
+			mset(key_got.x, key_got.y, 0)
 		end
 	end
 
@@ -205,15 +253,15 @@ function is_collision_detected(flag)
 	local g = fget(mget(x1, y3), flag)
 	local h = fget(mget(x2, y3), flag)
 
-	printh('x1='..tostr(x1)..' y1='..tostr(y1)..' x2='..tostr(x2)..' y2='..tostr(y2))
-	printh('a='..tostr(a)..' b='..tostr(b)..' c='..tostr(c)..' d='..tostr(d))
+	--printh('x1='..tostr(x1)..' y1='..tostr(y1)..' x2='..tostr(x2)..' y2='..tostr(y2))
+	--printh('a='..tostr(a)..' b='..tostr(b)..' c='..tostr(c)..' d='..tostr(d))
 
 	if (a or b or c or d or e or f or g or h) then
 		is_collision = true
 	end
 
-	printh('is collision'..tostr(is_collision))
-	printh('jumping is '..tostr(is_jumping))
+	--printh('is collision'..tostr(is_collision))
+	--printh('jumping is '..tostr(is_jumping))
 
 	return is_collision
 end
@@ -350,9 +398,9 @@ function is_floor_available()
 
 	if (a or b) then
 		floor_available = true
-		printh('suelo disponible')
+		--printh('suelo disponible')
 	else
-		printh('suelo no disponible')
+		--printh('suelo no disponible')
 	end
 
 	return floor_available
